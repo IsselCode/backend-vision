@@ -101,13 +101,32 @@ def meta():
 def start_camera():
     data = request.get_json(silent=True) or {}
     cam_index = int(data.get("index", 0))
-    width = int(data.get("width", 1920))
-    height = int(data.get("height", 1080))
-    started = worker.start(cam_index, width, height)
+
+    # Si ya está corriendo:
+    if worker.is_running():
+        meta = worker.get_meta()
+        return jsonify({
+            "ok": True,
+            "running": True,
+            "hydrated": 0,  # <- sin rehidratación
+            "w": meta.get("frame_w"),
+            "h": meta.get("frame_h"),
+            "msg": "Cámara ya estaba en ejecución"
+        }), 200
+
+    # 2) Si NO está corriendo: iniciar y SÍ rehidratar
+    started, w, h = worker.start(cam_index)
+
     if not started:
-        return jsonify({"ok": False, "msg": "La cámara ya estaba en ejecución"}), 400
+        return jsonify({"ok": False, "msg": "La cámara ya estaba en ejecución"}), 500
     count = _hydrate_worker_from_db()
-    return jsonify({"ok": True, "hydrated": count})
+    return jsonify({
+        "ok": True,
+        "running": True,
+        "hydrated": count,
+        "w": w,
+        "h": h
+    }), 200
 
 @app.post("/stop")
 def stop_camera():
