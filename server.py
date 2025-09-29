@@ -12,7 +12,7 @@ app = Flask(__name__)
 worker = CameraWorker()
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Helpers: parseo de ángulo y color
+# Helpers: parseo de ángulo, color e hidratación de boundings
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _parse_angle_deg(d: dict) -> float:
@@ -69,6 +69,20 @@ def _color_hex_from_input(d: dict) -> str:
         return f"#{r:02X}{g:02X}{b:02X}"
     return "#00FF00"
 
+def _hydrate_worker_from_db():
+    rows = db.get_all_bboxes()
+    items_py = []
+    for r in rows:
+        bid = int(r["id"])
+        cx  = float(r["cx"]); cy = float(r["cy"])
+        w   = float(r["w"]);  h  = float(r["h"])
+        ang = float(r["angle_deg_cv"])
+        # derivar BGR desde el hex guardado
+        col = _parse_color_bgr({"color_hex": r["color_hex"]})
+        items_py.append((bid, cx, cy, w, h, ang, col))
+    worker.set_bboxes(items_py)
+    return len(items_py)
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Básicos / cámara
 # ─────────────────────────────────────────────────────────────────────────────
@@ -92,7 +106,8 @@ def start_camera():
     started = worker.start(cam_index, width, height)
     if not started:
         return jsonify({"ok": False, "msg": "La cámara ya estaba en ejecución"}), 400
-    return jsonify({"ok": True})
+    count = _hydrate_worker_from_db()
+    return jsonify({"ok": True, "hydrated": count})
 
 @app.post("/stop")
 def stop_camera():
@@ -259,48 +274,7 @@ def delete_bbox(bid: int):
 
 @app.get("/bboxes")
 def get_bboxes():
-    """
-    Devuelve bounding boxes.
-    - ?source=db     (default): desde la base de datos (persistente)
-    - ?source=worker          : los que el worker está dibujando ahora (si corre)
-    - ?source=both            : ambos (útil para comparar)
-    """
-    src = (request.args.get("source") or "db").lower()
-
-    if src == "worker":
-        running = worker.is_running()
-        items = worker.get_bboxes() if running else []
-        return jsonify({
-            "ok": True,
-            "source": "worker",
-            "running": running,
-            "items": items,  # [{"id", "cx","cy","w","h","angle_deg_cv","color_bgr"}]
-        })
-
-    if src == "both":
-        running = worker.is_running()
-        wk = worker.get_bboxes() if running else []
-        # Mapeo filas de DB al contrato de API
-        db_rows = db.get_all_bboxes()
-        db_items = [{
-            "id": int(r["id"]),
-            "cx": float(r["cx"]),
-            "cy": float(r["cy"]),
-            "w":  float(r["w"]),
-            "h":  float(r["h"]),
-            "angle_deg": float(r["angle_deg_cv"]),  # guardas mismo convenio
-            "color_hex": r["color_hex"],
-            "created_at": r["created_at"],
-        } for r in db_rows]
-        return jsonify({
-            "ok": True,
-            "source": "both",
-            "running": running,
-            "db_items": db_items,
-            "worker_items": wk,
-        })
-
-    # default: DB
+    # Devuelve bounding boxes.
     rows = db.get_all_bboxes()
     items = [{
         "id": int(r["id"]),

@@ -2,6 +2,7 @@ import threading
 import time
 import cv2
 import numpy as np
+import mss
 from typing import Optional, Tuple, Dict, List
 
 from utils import draw_rotated_rect
@@ -38,10 +39,17 @@ class CameraWorker:
             self._frame_h = None
 
         def _loop():
+
             cap = cv2.VideoCapture(self._cam_index)
-            # cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))  # útil p/DroidCam
             cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
             cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+
+
+
+            # sct = mss.mss()
+
+            # Define qué capturar: toda la pantalla principal
+            # monitor = sct.monitors[1]  # 1 = monitor principal
 
             if not cap.isOpened():
                 with self._lock:
@@ -59,6 +67,11 @@ class CameraWorker:
 
                 if not running:
                     break
+
+                # Captura pantalla
+                # shot = sct.grab(monitor)
+                # frame = cv2.cvtColor(np.array(shot), cv2.COLOR_BGRA2BGR)
+                # frame = np.ascontiguousarray(frame)
 
                 ok, frame = cap.read()
                 if not ok:
@@ -94,6 +107,13 @@ class CameraWorker:
                     cv2.circle(frame, (int(cx), int(cy)), 3, (255, 255, 255), -1)
                     cv2.putText(frame, str(bid), (int(cx) + 6, int(cy) - 6),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, color_bgr, 2, cv2.LINE_AA)
+
+                cv2.imshow("Preview", frame)
+                # 1 ms para refrescar; si se presiona 'q' se cierra
+                if cv2.waitKey(1) & 0xFF == ord('q'):
+                    with self._lock:
+                        self._running = False
+                    break
 
                 ok2, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
                 if ok2:
